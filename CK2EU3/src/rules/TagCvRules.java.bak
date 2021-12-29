@@ -1,0 +1,187 @@
+package rules;
+
+import java.util.TreeSet;
+import java.io.PrintWriter;
+import java.io.CharArrayWriter;
+
+import pxAnalyzer.PXTree.BaseData;
+import pxAnalyzer.PXTree.BaseField;
+import pxAnalyzer.PXTree.Field;
+import pxAnalyzer.PXTree.ListField;
+import pxAnalyzer.PXTree.StructField;
+
+import ck.Country;
+import ck.County;
+import ck.Title;
+
+import utils.*;
+
+public class TagCvRules {
+	
+	//pool of still available tags
+	static private TreeSet<String> __listTags = new TreeSet<String>();
+	static private TreeSet<String> __usedTags = new TreeSet<String>();
+	
+	static public boolean isFromTagPool(String tag) {	
+		boolean inList = isInList(tag);
+		boolean inUsed = isUsed(tag);
+		
+		return  inList || inUsed;
+	}
+	
+	static public boolean isInList(String tag) {
+		boolean inList = __listTags.contains(tag);
+		
+		return inList;
+	}
+	
+	static public boolean isUsed(String tag) {
+		boolean inUsed = __usedTags.contains(tag);
+
+		return inUsed;
+	}
+	
+	static public TreeSet<String> getListTags() {
+		return __listTags;
+	}
+
+	static public TreeSet<String> getUsedTags() {
+		return __usedTags;
+	}
+
+	static void loadPool(ListField f) {
+		for (BaseData d : f._data)
+			__listTags.add(d._value);
+	}
+	
+	static public class TagMapping extends KeyString implements FieldLoadable {
+		public String _tagCK;
+		public String _tagEU3;
+		public TagMapping() {}
+		public boolean load(Field<?> f) { _tagCK = f.name(); _tagEU3=((BaseField)f).get(); _key=_tagCK; return true; }
+	}
+		
+	private static FieldSet<TagMapping> __mappingList = new FieldSet<TagMapping>(TagMapping.class);
+	
+	static void load(StructField root) {
+	    loadPool(root.getList("tag_pool"));
+	    __mappingList.load(root.getStruct("tags"));
+	}
+	
+	static public int nbTags() {
+		return __listTags.size();
+	}
+	
+	static public void restoreTag(String eu3Tag) {
+		if (!__listTags.contains(eu3Tag)) {
+			__listTags.add(eu3Tag);
+			__usedTags.remove(eu3Tag);
+		}
+	}
+	
+	static private String takeTag(String tagCK) {
+		TagMapping r = __mappingList.search(tagCK);
+		if (r==null) return null;  //may happen for some tags volontaraly removed from the list, such as GERM or ITAL
+		String tag = r._tagEU3;
+		if (!__usedTags.contains(tag)) { //tag not yet used : take it!
+			__listTags.remove(tag);
+			__usedTags.add(tag);
+		    return tag;
+		}
+		return null;
+	}
+	
+	/**
+	 * Get a tag for the country
+	 * @param c     country for which the tag is generated
+	 * @param limit a parameter limiting the depth of the search
+	 *              0 : get nominal tag (for country tag
+	 *              1 : also try tag for owned county
+	 *              2 : also try any tag for owning duchy provinces
+	 *              3 : also try any tag for owning kingdom provinces
+	 *              otherwise : get random tag...
+	 * @return
+	 */
+	static public String getTag(Country c, int limit) {
+		//try nominal tag for country
+		String tag = takeTag(c._tag);
+		if (tag!=null) return tag;
+		if (limit==0) return null;
+		//try tag for capital county
+		if (c._capital!=null) {
+			if (c._capital._duchy!=null) {
+			    tag = takeTag(c._capital._duchy._tag);
+			    if (tag!=null) return tag;
+			}
+		    tag = takeTag(makeCKtag(c._capital._id));
+		    if (tag!=null) return tag;
+		}
+		//try any tag for any directly owned county
+		for (County x : c._owned) {
+			tag = takeTag(makeCKtag(x._id));
+			if (tag!=null) return tag;
+		}
+		if (limit==1) return null;
+		//try any tag at Duchy level
+		tag = getRndTag(c,Title.Tier.DUCHY);
+		if (tag!=null) return tag;
+		if (limit==2) return null;
+		//try any tag at Kingdom level
+		tag = getRndTag(c,Title.Tier.KINGDOM);
+		if (tag!=null) return tag;
+		if (limit==3) return null;
+		//try any tag
+		if (__listTags.size()==0) return null;
+		return getRndTag(c,null);
+	}
+	
+	//getting a tag by watching owned eu3 provinces ; list ends with capital.
+	static public String getTag(String[] eu3Owned) {
+		int i=eu3Owned.length;
+		//go in reverse order to check capital first
+		while(i>0 && eu3Owned[--i]==null);
+		while (i>=0) {
+			String tag = eu3Owned[i--];
+			if (__listTags.contains(tag)) { //tag not yet used : take it!
+				__listTags.remove(tag);
+			    return tag;
+			}
+		}
+		return null;
+	}
+	
+	/**
+	 * Get random free tag from any province "owned" by the whole country
+	 * or by one of it's over-lord.
+	 * Choice up to that tier level. If tier is null, choice among all
+	 * remaining tags.
+	 */
+	static private String getRndTag(Country c, Title.Tier tier) {
+		if (tier==null) {
+			String[] s = __listTags.toArray(new String[__listTags.size()]);
+			String tag = s[Rnd.get().nextInt(__listTags.size())];
+			__listTags.remove(tag);
+			return tag;
+		}
+		else {
+			Country k = c;
+			while (k._liege!=null && k._title._tier!=tier) k=k._liege;
+			TreeSet<String> list = new TreeSet<String>();
+			for (County x : k.allProvinces())
+				list.add(makeCKtag(x._id));
+			if (list.size()==0) return null;
+			if (list.size()==1) return takeTag(list.first());
+			String[] s = list.toArray(new String[list.size()]);
+			return takeTag(s[Rnd.get().nextInt(list.size())]);
+		}
+	}
+	
+	static private String makeCKtag(String id) {
+		int n = (new Integer(id)).intValue();
+		CharArrayWriter caw = new CharArrayWriter(4);
+		PrintWriter out = new PrintWriter(caw);
+		out.format("C%03d",n);
+		return caw.toString();
+	}
+
+}
