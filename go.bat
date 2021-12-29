@@ -1,0 +1,1 @@
+java -Xms700m -Xmx700m -Dfile.encoding=ISO-8859-1 -cp CK2EU3.jar CK2EU3 "C:\games\Paradox Interactive\Crusader Kings" "C:\games\Paradox Interactive\Europa Universalis III" "EU3-2.eug"
