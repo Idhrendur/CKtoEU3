@@ -1,0 +1,17 @@
+previous_war={
+    name=""
+    history={
+    }
+    action={
+        year=1
+        month=0
+        day=0
+    }
+}
+income_statistics={
+}
+nation_size_statistics={
+}
+inflation_statistics={
+}
+}
