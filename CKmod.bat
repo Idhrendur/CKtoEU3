@@ -1,0 +1,1 @@
+java -Xms500m -Xmx500m -Dfile.encoding=ISO-8859-1 -jar CKmod.jar

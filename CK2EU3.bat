@@ -1,1 +1,0 @@
-java -Xms700m -Xmx700m -Dfile.encoding=ISO-8859-1 -cp CK2EU3.jar CK2EU3
